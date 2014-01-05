@@ -15,4 +15,3 @@ categories: misc
 
 P.S. 博客的名字实际上是我在浙大飘渺水云间BBS的昵称，不知道还有没有同学能记得……
 
-> Written with [StackEdit](https://stackedit.io/).
