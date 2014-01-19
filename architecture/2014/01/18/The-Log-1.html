@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+        <title>The Log: What every software engineer should know about real-time data's unifying abstraction (1)</title>
+        <meta name="viewport" content="width=device-width">
+
+        <!-- syntax highlighting CSS -->
+        <link rel="stylesheet" href="/css/syntax.css">
+
+        <!-- Custom CSS -->
+        <link rel="stylesheet" href="/css/main.css">
+        <link rel="stylesheet" href="/css/bootstrap.css">
+        <link rel="shortcut icon" href="/favicon.ico"> 
+        <script>
+          (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+          (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+          m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+          })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+        
+          ga('create', 'UA-46851282-1', 'creatstar.com');
+          ga('send', 'pageview');
+        
+        </script>
+    </head>
+    <body>
+
+        <div class="site">
+          <div class="header">
+            <h1 class="title"><a href="/">INDOMITABLE HERMIT</a></h1>
+            <a class="extra" href="/">home</a>
+          </div>
+
+          <h2>The Log: What every software engineer should know about real-time data's unifying abstraction (1)</h2>
+<p class="meta">18 Jan 2014</p>
+
+<div class="post">
+<p>前段时间，Linkedin的核心工程师（Principal Staff Engineer）<a href="http://www.linkedin.com/in/jaykreps">Jay Kreps</a>，<a href="https://kafka.apache.org/">Kafka</a>消息系统的作者，写了一篇关于大型互联网应用后端架构的雄文<a href="http://engineering.linkedin.com/distributed-systems/log-what-every-software-engineer-should-know-about-real-time-datas-unifying">The Log: What every software engineer should know about real-time data&#39;s unifying abstraction</a>。这篇文章以后端处理中的核心逻辑流日志为主线，详细阐述了日志流抽象和设计对现代大型互联网应用架构的重要性。简单地说，Linkedin的整个后端系统是依靠Kafka串起来的。数据在Kafka中流动，就像血液在血管中流动一样，是整个体系得以生生不息的关键。</p>
+
+<p>碰巧的是，我在百度基础架构部工作的时候，也维护和升级过类似kafka的消息系统。加上这两年从事数据相关的各项工作，使我对Jay在文中提到的不少内容很有感触。在此谨借Jay的雄文，谈一些我的理解，希望能对读者有一些帮助。</p>
+
+<h2>The Log: What every software engineer should know about real-time data&#39;s unifying abstraction</h2>
+
+<p>I joined LinkedIn about six years ago at a particularly interesting time. We were just beginning to run up against the limits of our monolithic, centralized database and needed to start the transition to a portfolio of specialized distributed systems. This has been an interesting experience: we built, deployed, and run to this day a distributed graph database, a distributed search backend, a Hadoop installation, and a first and second generation key-value store.</p>
+
+<p>One of the most useful things I learned in all this was that many of the things we were building had a very simple concept at their heart: the log. Sometimes called write-ahead logs or commit logs or transaction logs, logs have been around almost as long as computers and are at the heart of many distributed data systems and real-time application architectures.</p>
+
+<p>You can&#39;t fully understand databases, NoSQL stores, key value stores, replication, paxos, hadoop, version control, or almost any software system without understanding logs; and yet, most software engineers are not familiar with them. I&#39;d like to change that. In this post, I&#39;ll walk you through everything you need to know about logs, including what is log and how to use logs for data integration, real time processing, and system building.</p>
+
+<blockquote>
+<p>后端系统的核心是日志，无论它用哪个名字，write-ahead logs, commit logs, 或者是transaction logs. 理解日志是理解存储系统，备份，paxos协议，hadoop，版本控制等内容的基础</p>
+</blockquote>
+
+<h3>Part One: What Is a Log?</h3>
+
+<p>A log is perhaps the simplest possible storage abstraction. It is an append-only, totally-ordered sequence of records ordered by time. It looks like this:</p>
+
+<p><img src="/generated/2014-01-18/rawlog-299x141-5e7ee8.png" alt="rawlog.png" ></p>
+
+<p>Records are appended to the end of the log, and reads proceed left-to-right. Each entry is assigned a unique sequential log entry number. </p>
+
+<p>The ordering of records defines a notion of &quot;time&quot; since entries to the left are defined to be older then entries to the right. The log entry number can be thought of as the &quot;timestamp&quot; of the entry. Describing this ordering as a notion of time seems a bit odd at first, but it has the convenient property that it is decoupled from any particular physical clock. This property will turn out to be essential as we get to distributed systems.</p>
+
+<blockquote>
+<p>每条日志都有一个唯一的有序数字与之对应。日志的序号可以被理解为某种时间戳，它不仅可以标识日志出现的顺序，也可以用于做去重等工作。在分布式系统协同工作的时候，日志序号会在各个子系统和模块间传递。工程师很容易根据日志序号来跟踪一条日志记录在整个系统中的处理情况。</p>
+</blockquote>
+
+<p>The contents and format of the records aren&#39;t important for the purposes of this discussion. Also, we can&#39;t just keep adding records to the log as we&#39;ll eventually run out of space. I&#39;ll come back to this in a bit.</p>
+
+<blockquote>
+<p>空间不够？你需要log rotate的机制，或者用其他方式删除历史数据。</p>
+</blockquote>
+
+<p>So, a log is not all that different from a file or a table. A file is an array of bytes, a table is an array of records, and a log is really just a kind of table or file where the records are sorted by time.</p>
+
+<p>At this point you might be wondering why it is worth talking about something so simple? How is a append-only sequence of records in any way related to data systems? The answer is that logs have a specific purpose: they record what happened and when. For distributed data systems this is, in many ways, the very heart of the problem.</p>
+
+<blockquote>
+<p>日志记录了系统中事件发生的时间和情况，是很多问题的关键。</p>
+</blockquote>
+
+<p>But before we get too far let me clarify something that is a bit confusing. Every programmer is familiar with another definition of logging—the unstructured error messages or trace info an application might write out to a local file using syslog or log4j. For clarity I will call this &quot;application logging&quot;. The application log is a degenerative form of the log concept I am describing. The biggest difference is that text logs are meant to be primarily for humans to read and the &quot;journal&quot; or &quot;data logs&quot; I&#39;m describing are built for programmatic access.</p>
+
+<blockquote>
+<p>这里所说的日志指的不是非结构化的文本应用程序日志，如用syslog和log4j打出的human readable的日志。而是指不同系统和模块间交换信息，协调工作的载体。</p>
+</blockquote>
+
+<p>(Actually, if you think about it, the idea of humans reading through logs on individual machines is something of an anachronism. This approach quickly becomes an unmanageable strategy when many services and servers are involved and the purpose of logs quickly becomes as an input to queries and graphs to understand behavior across many machines—something for which english text in files is not nearly as appropriate as the kind structured log described here.)</p>
+
+<h4>Logs in databases</h4>
+
+<p>I don&#39;t know where the log concept originated—probably it is one of those things like binary search that is too simple for the inventor to realize it was an invention. It is present as early as IBM&#39;s System R. The usage in databases has to do with keeping in sync the variety of data structures and indexes in the presence of crashes. To make this atomic and durable, a database uses a log to write out information about the records they will be modifying, before applying the changes to all the various data structures it maintains. The log is the record of what happened, and each table or index is a projection of this history into some useful data structure or index. Since the log is immediately persisted it is used as the authoritative source in restoring all other persistent structures in the event of a crash.</p>
+
+<blockquote>
+<p>日志最早在数据库中使用，为了应对出现crash的情况，将所要做的修改记录在日志里。</p>
+</blockquote>
+
+<p>Over-time the usage of the log grew from an implementation detail of ACID to a method for replicating data between databases. It turns out that the sequence of changes that happened on the database is exactly what is needed to keep a remote replica database in sync. Oracle, MySQL, and PostgreSQL include log shipping protocols to transmit portions of log to replica databases which act as slaves. Oracle has productized the log as a general data subscription mechanism for non-oracle data subscribers with their XStreams and GoldenGate and similar facilities in MySQL and PostgreSQL are key components of many data architectures.</p>
+
+<blockquote>
+<p>随着时间的推移，日志从一个ACID的一个实现细节，变成了数据库间备份的方法。“一串修改序列”正是让远端的数据库备份保持同步的必备要素。Oracle为外部的数据订阅者提供了XStreams和GoldenGate。其他数据库系统也有类似的设施。</p>
+</blockquote>
+
+<p>Because of this origin, the concept of a machine readable log has largely been confined to database internals. The use of logs as a mechanism for data subscription seems to have arisen almost by chance. But this very abstraction is ideal for supporting all kinds of messaging, data flow, and real-time data processing.</p>
+
+<blockquote>
+<p>虽然起源于数据库系统内部，日志这种抽象还是非常合适于所有类型的消息和数据流。</p>
+</blockquote>
+
+<h4>Logs in distributed systems</h4>
+
+<p>The two problems a log solves—ordering changes and distributing data—are even more important in distributed data systems. Agreeing upon an ordering for updates (or agreeing to disagree and coping with the side-effects) are among the core design problems for these systems.</p>
+
+<blockquote>
+<p>日志解决两个问题：1.为更新排序；2. 分发数据。</p>
+</blockquote>
+
+<p>The log-centric approach to distributed systems arises from a simple observation that I will call the State Machine Replication Principle:</p>
+
+<ul>
+<li>If two identical, deterministic processes begin in the same state and get the same inputs in the same order, they will produce the same output and end in the same state.</li>
+</ul>
+
+<blockquote>
+<p>如果两个一致的，确定的处理过程从同一个状态开始，并且接受相同顺序的相同输入，那么他们将产生一样的输出，并且最终到达一致的状态。</p>
+</blockquote>
+
+<p>This may seem a bit obtuse, so let&#39;s dive in and understand what it means.</p>
+
+<p>Deterministic means that the processing isn&#39;t timing dependent and doesn&#39;t let any other &quot;out of band&quot; input influence its results. For example a program whose output is influenced by the particular order of execution of threads or by a call to gettimeofday or some other non-repeatable thing is generally best considered as non-deterministic.</p>
+
+<blockquote>
+<p>确定的（deterministic）意味着处理过程并不依赖于时间等外部因素的输入，gettimeofday这种接口是肯定不行的。</p>
+</blockquote>
+
+<p>The state of the process is whatever data remains on the machine, either in memory or on disk, at the end of the processing.</p>
+
+<p>The bit about getting the same input in the same order should ring a bell—that is where the log comes in. This is a very intuitive notion: if you feed two deterministic pieces of code the same input log, they will produce the same output.</p>
+
+<p>The application to distributed computing is pretty obvious. You can reduce the problem of making multiple machines all do the same thing to the problem of implementing a distributed consistent log to feed these processes input. The purpose of the log here is to squeeze all the non-determinism out of the input stream to ensure that each replica processing this input stays in sync.</p>
+
+<p>When you understand it, there is nothing complicated or deep about this principle: it more or less amounts to saying &quot;deterministic processing is deterministic&quot;. Nonetheless, I think it is one of the more general tools for distributed systems desig</p>
+
+<p>One of the beautiful things about this approach is that the time stamps that index the log now act as the clock for the state of the replicas—you can describe each replica by a single number, the timestamp for the maximum log entry it has processed. This timestamp combined with the log uniquely captures the entire state of the replica.</p>
+
+<blockquote>
+<p>日志中的timestamps可以用来描述各个副本的进度和状态。这是一个比较自然的事情，可以用日志中的timestamp来判断不同副本的进度差异。</p>
+</blockquote>
+
+<p>There are a multitude of ways of applying this principle in systems depending on what is put in the log. For example, we can log the incoming requests to a service, or the state changes the service undergoes in response to request, or the transformation commands it executes. Theoretically, we could even log a series of machine instructions for each replica to execute or the method name and arguments to invoke on each replica. As long as two processes process these inputs in the same way, the processes will remaining consistent across replicas.</p>
+
+<p>Different groups of people seem to describe the uses of logs differently. Database people generally differentiate between physical and logical logging. Physical logging means logging the contents of each row that is changed. Logical logging means logging not the changed rows but the SQL commands that lead to the row changes (the insert, update, and delete statements).</p>
+
+<blockquote>
+<p>数据库人员将日志区分为物理和逻辑日志
+1. 物理日志：记录各行实际改变的内容；
+2. 逻辑日志：记录造成各行值改变的SQL语句。</p>
+</blockquote>
+
+<p>The distributed systems literature commonly distinguishes two broad approaches to processing and replication. The &quot;state machine model&quot; usually refers to an active-active model where we keep a log of the incoming requests and each replica processes each request. A slight modification of this, called the &quot;primary-backup model&quot;, is to elect one replica as the leader and allow this leader to process requests in the order they arrive and log out the changes to its state from processing the requests. The other replicas apply in order the state changes the leader makes so that they will be in sync and ready to take over as leader should the leader fail.</p>
+
+<blockquote>
+<p>分布式系统一般使用两种处理和备份的方式：
+1. 状态机模型（state machine model），即active-active模型，保持一份进入请求的日志，然后每个副本都处理每个请求。
+2. 主备模型（primary-backup model），有一个主副本处理输入的请求，并把请求记录到log里并且同步给其他副本。当主副本失效的时候，需要有从副本接替其工作成为主副本。</p>
+</blockquote>
+
+<p><img src="/generated/2014-01-18/replica_model-419x213-42c1b3.png" alt="replia_model.png" ></p>
+
+<p>To understand the difference between these two approaches, let&#39;s look at a toy problem. Consider a replicated &quot;arithmetic service&quot; which maintains a single number as its state (initialized to zero) and applies additions and multiplications to this value. The active-active approach might log out the transformations to apply, say &quot;+1&quot;, &quot;*2&quot;, etc. Each replica would apply these transformations and hence go through the same set of values. The &quot;active-passive&quot; approach would have a single master execute the transformations and log out the result, say &quot;1&quot;, &quot;3&quot;, &quot;6&quot;, etc. This example also makes it clear why ordering is key for ensuring consistency between replicas: reordering an addition and multiplication will yield a different result.</p>
+
+<p>The distributed log can be seen as the data structure which models the problem of <a href="http://en.wikipedia.org/wiki/Consensus_(computer_science)">consensus</a>. A log, after all, represents a series of decisions on the &quot;next&quot; value to append. You have to squint a little to see a log in the <a href="http://en.wikipedia.org/wiki/Paxos_(computer_science)">Paxos</a> family of algorithms, though log-building is their most common practical application. With Paxos, this is usually done using an extension of the protocol called &quot;multi-paxos&quot;, which models the log as a series of consensus problems, one for each slot in the log. The log is much more prominent in other protocols such as <a href="http://www.stanford.edu/class/cs347/reading/zab.pdf">ZAB</a>, <a href="https://ramcloud.stanford.edu/wiki/download/attachments/11370504/raft.pdf">RAFT</a>, and <a href="http://pmg.csail.mit.edu/papers/vr-revisited.pdf">Viewstamped Replication</a>, which directly model the problem of maintaining a distributed, consistent log.</p>
+
+<blockquote>
+<p>这里提到了分布式log领域里的一些经典作品：Paxos不用说了，被誉为“唯一的分布式一致性算法”；Viewstamped Replication的本质和paxos是一样的；ZAB是使用在zookeeper里的算法，比paxos简单，在工程实践中表现良好。本文的主要目的不是讲这几个算法，所以就不展开讨论了。</p>
+</blockquote>
+
+<p>My suspicion is that our view of this is a little bit biased by the path of history, perhaps due to the few decades in which the theory of distributed computing outpaced its practical application. In reality, the consensus problem is a bit too simple. Computer systems rarely need to decide a single value, they almost always handle a sequence of requests. So a log, rather than a simple single-value register, is the more natural abstraction.</p>
+
+<blockquote>
+<p>本文的作者认为关于分布式日志的历史发展轨迹有些偏，因为分布式工程实践中关注更多的应该是一个序列的请求，而不是确定一个值。其实讨论这个抽象层级没多大意思，一个序列的请求最后还是会分解为一个个请求。倒是这些经典的论文，经过高度抽象后，很不容易理解。</p>
+</blockquote>
+
+<p>Furthermore, the focus on the algorithms obscures the underlying log abstraction systems need. I suspect we will end up focusing more on the log as a commoditized building block irrespective of its implementation in the same way we often talk about a hash table without bothering to get in the details of whether we mean the murmur hash with linear probing or some other variant. The log will become something of a commoditized interface, with many algorithms and implementations competing to provide the best guarantees and optimal performance.</p>
+
+<blockquote>
+<p>本文的作者希望人们后续更多地把日志当做一个常用的组件，而不是纠结于其底层的实现算法。就像我们在用hash的时候，不会纠结于底层的算法。这样才能更好的理解整个log的抽象。</p>
+</blockquote>
+
+</div>
+
+<div id="disqus_thread"></div>
+<script type="text/javascript">
+    /* * * CONFIGURATION VARIABLES: EDIT BEFORE PASTING INTO YOUR WEBPAGE * * */
+    var disqus_shortname = 'creatstar'; // required: replace example with your forum shortname
+
+    /* * * DON'T EDIT BELOW THIS LINE * * */
+    (function() {
+        var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+        dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+        (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="http://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+
+
+          <div class="footer">
+            <div class="contact">
+              <p>
+                我们的微博<br/>
+              </p>
+            </div>
+            <div class="contact">
+              <p>
+                <a href="http://weibo.com/creatstar">叶谦creatstar</a>
+                <a href="http://weibo.com/u/1800945442">姝婧Winnie伪班客</a><br/>
+              </p>
+            </div>
+            <div class="contact">
+              <p>
+                版权声明：本站所有内容，未经特别说明，均采用<a href="http://creativecommons.org/licenses/by-nc-nd/3.0/deed.zh">“署名-非商业性使用-禁止演绎 3.0”协议</a>授权。任何违反本协议的行为均属于非法行为。如需非商业性转载，请保留署名。如需商业性转载出版，请直接和我们联系。
+              </p>
+            </div>
+          </div>
+
+        </div>
+    </body>
+</html>
