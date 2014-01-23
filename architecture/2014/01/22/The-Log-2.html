@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+        <title>The Log: What every software engineer should know about real-time data's unifying abstraction (2)</title>
+        <meta name="viewport" content="width=device-width">
+
+        <!-- syntax highlighting CSS -->
+        <link rel="stylesheet" href="/css/syntax.css">
+
+        <!-- Custom CSS -->
+        <link rel="stylesheet" href="/css/main.css">
+        <link rel="stylesheet" href="/css/bootstrap.css">
+        <link rel="shortcut icon" href="/favicon.ico"> 
+        <script>
+          (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+          (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+          m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+          })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+        
+          ga('create', 'UA-46851282-1', 'creatstar.com');
+          ga('send', 'pageview');
+        
+        </script>
+    </head>
+    <body>
+
+        <div class="site">
+          <div class="header">
+            <h1 class="title"><a href="/">INDOMITABLE HERMIT</a></h1>
+            <a class="extra" href="/">home</a>
+          </div>
+
+          <h2>The Log: What every software engineer should know about real-time data's unifying abstraction (2)</h2>
+<p class="meta">22 Jan 2014</p>
+
+<div class="post">
+<p>上一部分链接:<a href="/architecture/2014/01/18/The-Log-1.html">The Log: What every software engineer should know about real-time data&#39;s unifying abstraction (1)</a></p>
+
+<h3>Part Two: Data Integration</h3>
+
+<p>Let me first say what I mean by &quot;data integration&quot; and why I think it&#39;s important, then we&#39;ll see how it relates back to logs.</p>
+
+<ul>
+<li>Data integration is making all the data an organization has available in all its services and systems.</li>
+</ul>
+
+<p>This phrase &quot;data integration&quot; isn&#39;t all that common, but I don&#39;t know a better one. The more recognizable term ETL usually covers only a limited part of data integration—populating a relational data warehouse. But much of what I am describing can be thought of as ETL generalized to cover real-time systems and processing flows.</p>
+
+<blockquote>
+<p>ETL通常只包含Data integration的部分，即，数据进入一个关系型数据仓库。但作者所说的Data integration概念指的是ETL概念泛化到实时系统和数据处理流。</p>
+</blockquote>
+
+<p>You don&#39;t hear much about data integration in all the breathless interest and hype around the idea of big data, but nonetheless, I believe this mundane problem of &quot;making the data available&quot; is one of the more valuable things an organization can focus on.</p>
+
+<p>Effective use of data follows a kind of Maslow&#39;s hierarchy of needs. The base of the pyramid involves capturing all the relevant data, being able to put it together in an applicable processing environment (be that a fancy real-time query system or just text files and python scripts). This data needs to be modeled in a uniform way to make it easy to read and process. Once these basic needs of capturing data in a uniform way are taken care of it is reasonable to work on infrastructure to process this data in various ways—MapReduce, real-time query systems, etc.</p>
+
+<p>It&#39;s worth noting the obvious: without a reliable and complete data flow, a Hadoop cluster is little more than a very expensive and difficult to assemble space heater. Once data and processing are available, one can move concern on to more refined problems of good data models and consistent well understood semantics. Finally, concentration can shift to more sophisticated processing—better visualization, reporting, and algorithmic processing and prediction.</p>
+
+<blockquote>
+<p>类比马斯洛的需求理论，把所有的相关数据都放在一起，并统一它们的格式以便读取和处理，是有效利用数据的最基础的需求。如果有稳定和完整的数据流，我们就可以把注意力转移到更加精细的可视化技术，报表，以及数值处理和预测上去。</p>
+</blockquote>
+
+<p>In my experience, most organizations have huge holes in the base of this pyramid—they lack reliable complete data flow—but want to jump directly to advanced data modeling techniques. This is completely backwards.</p>
+
+<p>So the question is, how can we build reliable data flow throughout all the data systems in an organization?</p>
+
+<h4>Data Integration: Two complications</h4>
+
+<p>Two trends make data integration harder.</p>
+
+<blockquote>
+<p>两个趋势使得data integration变得复杂</p>
+</blockquote>
+
+<h5>The event data firehose</h5>
+
+<p>The first trend is the rise of event data. Event data records things that happen rather than things that are. In web systems, this means user activity logging, but also the machine-level events and statistics required to reliably operate and monitor a data center&#39;s worth of machines. People tend to call this &quot;log data&quot; since it is often written to application logs, but that confuses form with function. This data is at the heart of the modern web: Google&#39;s fortune, after all, is generated by a relevance pipeline built on clicks and impressions—that is, events.</p>
+
+<p>And this stuff isn&#39;t limited to web companies, it&#39;s just that web companies are already fully digital, so they are easier to instrument. Financial data has long been event-centric. RFID adds this kind of tracking to physical objects. I think this trend will continue with the digitization of traditional businesses and activities.</p>
+
+<p>This type of event data records what happened, and tends to be several orders of magnitude larger than traditional database uses. This presents significant challenges for processing.</p>
+
+<blockquote>
+<p>事件数据的快速增长。由于在事件数据中不仅保存了用户的行为数据，还保存了硬件事件和数据，导致数据膨胀很快。而且这种趋势不仅仅局限于互联网公司。这样的数据规模超出传统数据库处理能力的几个数量级。事件数据膨胀带来的问题本人也深有体会。对于具体的用户来说，事件数据的自定义比较方便，容易加入各种需求。但对于data integration来说，数据自定义带来的格式多样性极大地降低了数据的价值，提高了数据利用的难度。所以需要在设计之初就考虑事件数据的格式化和模版化。</p>
+</blockquote>
+
+<h5>The explosion of specialized data systems</h5>
+
+<p>The second trend comes from the explosion of specialized data systems that have become popular and often freely available in the last five years. Specialized systems exist for OLAP, search, simple online storage, batch processing, graph analysis, and so on.</p>
+
+<p>The combination of more data of more varieties and a desire to get this data into more systems leads to a huge data integration problem.</p>
+
+<blockquote>
+<p>特殊数据系统的爆炸式增长也是一个重要的趋势，这些特殊数据系统包括 OLAP，搜索，简单在线存储，批量处理，图分析等。</p>
+</blockquote>
+
+<h4>Log-structured data flow</h4>
+
+<p>The log is the natural data structure for handling data flow between systems. The recipe is very simple:</p>
+
+<ul>
+<li>Take all the organization&#39;s data and put it into a central log for real-time subscription.
+&gt;日志结构组织的数据流的核心就是把组织中所有数据都放到一个中心log系统里，以便实时的订阅。</li>
+</ul>
+
+<p>Each logical data source can be modeled as its own log. A data source could be an application that logs out events (say clicks or page views), or a database table that accepts modifications. Each subscribing system reads from this log as quickly as it can, applies each new record to its own store, and advances its position in the log. Subscribers could be any kind of data system—a cache, Hadoop, another database in another site, a search system, etc.</p>
+
+<p>For example, the log concept gives a logical clock for each change against which all subscribers can be measured. This makes reasoning about the state of the different subscriber systems with respect to one another far simpler, as each has a &quot;point in time&quot; they have read up to.</p>
+
+<p><img src="/generated/2014-01-22/resource-299x285-bf053c.png" alt="log-structed data flow" ></p>
+
+<p>To make this more concrete, consider a simple case where there is a database and a collection of caching servers. The log provides a way to synchronize the updates to all these systems and reason about the point of time of each of these systems. Let&#39;s say we write a record with log entry X and then need to do a read from the cache. If we want to guarantee we don&#39;t see stale data, we just need to ensure we don&#39;t read from any cache which has not replicated up to X.</p>
+
+<blockquote>
+<p>日志的概念实际上给订阅者标识进度提供了一个逻辑时钟。这个逻辑时钟对于应用层来说也是重要的，可以用于避免某个订阅系统读到过时的数据。</p>
+</blockquote>
+
+<p>The log also acts as a buffer that makes data production asynchronous from data consumption. This is important for a lot of reasons, but particularly when there are multiple subscribers that may consume at different rates. This means a subscribing system can crash or go down for maintenance and catch up when it comes back: the subscriber consumes at a pace it controls. A batch system such as Hadoop or a data warehouse may consume only hourly or daily, whereas a real-time query system may need to be up-to-the-second. Neither the originating data source nor the log has knowledge of the various data destination systems, so consumer systems can be added and removed with no change in the pipeline.</p>
+
+<blockquote>
+<p>日志也表现为数据异步消费时的缓冲，因为每个订阅者的消费速度不一样，订阅系统可能停机、维护，在重新连接时追上进度。像data warehouse或者hadoop这样的批量系统，又有可能以每小时或者每天的间隔消费数据，而实时系统却需要实时消费。数据源不可能知道所有目标系统的细节，所以消费者的增加和删除都不应该对pipeline有影响。</p>
+</blockquote>
+
+<p>Of particular importance: the destination system only knows about the log and not any details of the system of origin. The consumer system need not concern itself with whether the data came from an RDBMS, a new-fangled key-value store, or was generated without a real-time query system of any kind. This seems like a minor point, but is in fact critical.</p>
+
+<blockquote>
+<p>很重要的一点是，消费者在从系统中取出数据的时候，并不需要关心数据的来源，这样就使得在整个数据处理pipeline中加入和减少环节变得更加容易。</p>
+</blockquote>
+
+<p>I use the term &quot;log&quot; here instead of &quot;messaging system&quot; or &quot;pub sub&quot; because it is a lot more specific about semantics and a much closer description of what you need in a practical implementation to support data replication. I have found that &quot;publish subscribe&quot; doesn&#39;t imply much more than indirect addressing of messages—if you compare any two messaging systems promising publish-subscribe, you find that they guarantee very different things, and most models are not useful in this domain. You can think of the log as acting as a kind of messaging system with durability guarantees and strong ordering semantics. In distributed systems, this model of communication sometimes goes by the (somewhat terrible) name of atomic broadcast.</p>
+
+<p>It&#39;s worth emphasizing that the log is still just the infrastructure. That isn&#39;t the end of the story of mastering data flow: the rest of the story is around metadata, schemas, compatibility, and all the details of handling data structure and evolution. But until there is a reliable, general way of handling the mechanics of data flow, the semantic details are secondary.</p>
+
+<blockquote>
+<p>值得再次强调的是，log仍然只是基础架构，它并不是操控数据流的最后一环，剩下的事情还包括metadata，schemas，兼容性，还有处理数据结构和演化的各种细节。当然，在拥有一个可靠和统一处理数据流的机制之前，语义的细节是第二位的。</p>
+</blockquote>
+
+<h4>At LinkedIn</h4>
+
+<p>I got to watch this data integration problem emerge in fast-forward as LinkedIn moved from a centralized relational database to a collection of distributed systems.
+These days our major data systems include:</p>
+
+<ul>
+<li><a href="http://data.linkedin.com/projects/search">Search</a></li>
+<li><a href="http://engineering.linkedin.com/real-time-distributed-graph/using-set-cover-algorithm-optimize-query-latency-large-scale-distributed">Social Graph</a></li>
+<li><a href="http://project-voldemort.com/">Voldemort</a> (key-value store)</li>
+<li><a href="http://data.linkedin.com/projects/espresso">Espresso</a> (document store)</li>
+<li><a href="http://www.quora.com/LinkedIn-Recommendations/How-does-LinkedIns-recommendation-system-work">Recommendation engine</a></li>
+<li>OLAP query engine</li>
+<li><a href="http://hadoop.apache.org/">Hadoop</a></li>
+<li><a href="http://www.teradata.com/">Terradata</a></li>
+<li><a href="http://engineering.linkedin.com/52/autometrics-self-service-metrics-collection">Ingraphs</a> (monitoring graphs and metrics services)</li>
+</ul>
+
+<p>Each of these is a specialized distributed system that provides advanced functionality in its area of specialty.</p>
+
+<p>This idea of using logs for data flow has been floating around LinkedIn since even before I got here. One of the earliest pieces of infrastructure we developed was a service called <a href="https://github.com/linkedin/databus">databus</a> that provided a log caching abstraction on top of our early Oracle tables to scale subscription to database changes so we could feed our social graph and search indexes.</p>
+
+<p>I&#39;ll give a little bit of the history to provide context. My own involvement in this started around 2008 after we had shipped our key-value store. My next project was to try to get a working Hadoop setup going, and move some of our recommendation processes there. Having little experience in this area, we naturally budgeted a few weeks for getting data in and out, and the rest of our time for implementing fancy prediction algorithms. So began a long slog.</p>
+
+<p>We originally planned to just scrape the data out of our existing Oracle data warehouse. The first discovery was that getting data out of Oracle quickly is something of a dark art. Worse, the data warehouse processing was not appropriate for the production batch processing we planned for Hadoop—much of the processing was non-reversable and specific to the reporting being done. We ended up avoiding the data warehouse and going directly to source databases and log files. Finally, we implemented another pipeline to load data into our key-value store for serving results.</p>
+
+<blockquote>
+<p>本文作者从Oracle数据仓库导数据到hadoop时出现问题，最后直接从原始数据库和日志文件导数据。并且实现了一个向kv存储（用于线上展示数据）加载数据的pipeline</p>
+</blockquote>
+
+<p>This mundane data copying ended up being one of the dominate items for the original development. Worse, any time there was a problem in any of the pipelines, the Hadoop system was largely useless—running fancy algorithms on bad data just produces more bad data.</p>
+
+<p>hadoop在坏数据上跑，得到的也是坏数据。</p>
+
+<p>Although we had built things in a fairly generic way, each new data source required custom configuration to set up. It also proved to be the source of a huge number of errors and failures. The site features we had implemented on Hadoop became popular and we found ourselves with a long list of interested engineers. Each user had a list of systems they wanted integration with and a long list of new data feeds they wanted.</p>
+
+<blockquote>
+<p>虽然构建了一个较为通用的运行方式，但每个新数据源的加入都需要自定义的配置。这个过程常常会带来不少错误和失败。</p>
+</blockquote>
+
+<p>A few things slowly became clear to me.</p>
+
+<p>First, the pipelines we had built, though a bit of a mess, were actually extremely valuable. Just the process of making data available in a new processing system (Hadoop) unlocked a lot of possibilities. New computation was possible on the data that would have been hard to do before. Many new products and analysis just came from putting together multiple pieces of data that had previously been locked up in specialized systems.</p>
+
+<blockquote>
+<p>将数据放到一个新的处理系统里，是一件很有价值的事情，很多的新产品和分析都是通过把多种数据整合到一起而产生的</p>
+</blockquote>
+
+<p>Second, it was clear that reliable data loads would require deep support from the data pipeline. If we captured all the structure we needed, we could make Hadoop data loads fully automatic, so that no manual effort was expanded adding new data sources or handling schema changes—data would just magically appear in HDFS and Hive tables would automatically be generated for new data sources with the appropriate columns.</p>
+
+<blockquote>
+<p>可靠的数据读入依赖于数据管道的支持，如果有合适的数据格式，将数据导入特定系统的工作可以是全自动化的。</p>
+</blockquote>
+
+<p>Third, we still had very low data coverage. That is, if you looked at the overall percentage of the data LinkedIn had that was available in Hadoop, it was still very incomplete. And getting to completion was not going to be easy given the amount of effort required to operationalize each new data source.</p>
+
+<blockquote>
+<p>LinkedIn的可供分析的数据覆盖率仍然很低。</p>
+</blockquote>
+
+<p>The way we had been proceeding, building out custom data loads for each data source and destination, was clearly infeasible. We had dozens of data systems and data repositories. Connecting all of these would have lead to building custom piping between each pair of systems something like this:</p>
+
+<p><img src="/generated/2014-01-22/mess_dataflow-598x206-0a7454.png" alt="mess_dataflow.png" ></p>
+
+<p>Note that data often flows in both directions, as many systems (databases, Hadoop) are both sources and destinations for data transfer. This meant we would end up building two pipelines per system: one to get data in and one to get data out.</p>
+
+<blockquote>
+<p>在实际生产环境中，任何系统都可能同时既是数据源又是数据出口。如果在任意两个系统间都有两个管道（出口和入口），那整个环境的复杂性是非常可怕的。</p>
+</blockquote>
+
+<p>This clearly would take an army of people to build and would never be operable. As we approached fully connectivity we would end up with something like O(N2) pipelines.</p>
+
+<p>Instead, we needed something generic like this:</p>
+
+<p><img src="/generated/2014-01-22/clean_dataflow-598x251-56fe8e.png" alt="mess_dataflow.png" ></p>
+
+<p>As much as possible, we needed to isolate each consumer from the source of the data. They should ideally integrate with just a single data repository that would give them access to everything.</p>
+
+<p>The idea is that adding a new data system—be it a data source or a data destination—should create integration work only to connect it to a single pipeline instead of each consumer of data.</p>
+
+<blockquote>
+<p>为了解决这个问题，我们需要尽可能做到把数据的消费从数据源处隔离开。统一的管道而不是各个独立的管道是一个比较自然的想法。</p>
+</blockquote>
+
+<p>This experience lead me to focus on building Kafka to combine what we had seen in messaging systems with the log concept popular in databases and distributed system internals. We wanted something to act as a central pipeline first for all activity data, and eventually for many other uses, including data deployment out of Hadoop, monitoring data, etc.</p>
+
+<p>For a long time, Kafka was a little unique (some would say odd) as an infrastructure product—neither a database nor a log file collection system nor a traditional messaging system. But recently Amazon has offered a service that is very very similar to Kafka called Kinesis. The similarity goes right down to the way partitioning is handled, data is retained, and the fairly odd split in the Kafka API between high- and low-level consumers. I was pretty happy about this. A sign you&#39;ve created a good infrastructure abstraction is that AWS offers it as a service! Their vision for this seems to be exactly similar to what I am describing: it is the piping that connects all their distributed systems—DynamoDB, RedShift, S3, etc.—as well as the basis for distributed stream processing using EC2.</p>
+
+<blockquote>
+<p>亚马逊也推出了一个类似kafka的服务，Kinesis</p>
+</blockquote>
+
+</div>
+
+<div id="disqus_thread"></div>
+<script type="text/javascript">
+    /* * * CONFIGURATION VARIABLES: EDIT BEFORE PASTING INTO YOUR WEBPAGE * * */
+    var disqus_shortname = 'creatstar'; // required: replace example with your forum shortname
+
+    /* * * DON'T EDIT BELOW THIS LINE * * */
+    (function() {
+        var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+        dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+        (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="http://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+
+
+          <div class="footer">
+            <div class="contact">
+              <p>
+                我们的微博<br/>
+              </p>
+            </div>
+            <div class="contact">
+              <p>
+                <a href="http://weibo.com/creatstar">叶谦creatstar</a>
+                <a href="http://weibo.com/u/1800945442">姝婧Winnie伪班客</a><br/>
+              </p>
+            </div>
+            <div class="contact">
+              <p>
+                版权声明：本站所有内容，未经特别说明，均采用<a href="http://creativecommons.org/licenses/by-nc-nd/3.0/deed.zh">“署名-非商业性使用-禁止演绎 3.0”协议</a>授权。任何违反本协议的行为均属于非法行为。如需非商业性转载，请保留署名。如需商业性转载出版，请直接和我们联系。
+              </p>
+            </div>
+          </div>
+
+        </div>
+    </body>
+</html>
