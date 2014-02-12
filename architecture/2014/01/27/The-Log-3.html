@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+        <title>The Log: What every software engineer should know about real-time data's unifying abstraction (3)</title>
+        <meta name="viewport" content="width=device-width">
+
+        <!-- syntax highlighting CSS -->
+        <link rel="stylesheet" href="/css/syntax.css">
+
+        <!-- Custom CSS -->
+        <link rel="stylesheet" href="/css/main.css">
+        <link rel="stylesheet" href="/css/bootstrap.css">
+        <link rel="shortcut icon" href="/favicon.ico"> 
+        <script>
+          (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+          (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+          m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+          })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+        
+          ga('create', 'UA-46851282-1', 'creatstar.com');
+          ga('send', 'pageview');
+        
+        </script>
+    </head>
+    <body>
+
+        <div class="site">
+          <div class="header">
+            <h1 class="title"><a href="/">INDOMITABLE HERMIT</a></h1>
+            <a class="extra" href="/">home</a>
+          </div>
+
+          <h2>The Log: What every software engineer should know about real-time data's unifying abstraction (3)</h2>
+<p class="meta">27 Jan 2014</p>
+
+<div class="post">
+<p>上一部分链接:<a href="/architecture/2014/01/22/The-Log-2.html">The Log: What every software engineer should know about real-time data&#39;s unifying abstraction (2)</a></p>
+
+<h3>Part Three: Logs &amp; Real-time Stream Processing</h3>
+
+<p>So far, I have only described what amounts to a fancy method of copying data from place-to-place. But shlepping bytes between storage systems is not the end of the story. It turns out that &quot;log&quot; is another word for &quot;stream&quot; and logs are at the heart of <a href="http://highlyscalable.wordpress.com/2013/08/20/in-stream-big-data-processing/">stream processing</a>.</p>
+
+<p>But, wait, what exactly is stream processing?</p>
+
+<p>If you are a fan of late 90s and early 2000s <a href="http://cs.brown.edu/research/aurora/vldb03_journal.pdf">database literature</a> or semi-successful <a href="http://www-03.ibm.com/software/products/us/en/infosphere-streams">data infrastructure products</a>, you likely associate stream processing with efforts to build a SQL engine or &quot;boxes and arrows&quot; interface for event driven processing.</p>
+
+<blockquote>
+<p>对早年数据库相关文献比较熟悉的人，会把流式计算与构建一个SQL引擎或一个为事件驱动处理而做流程做的“盒子与箭头”界面相联系。</p>
+</blockquote>
+
+<p>If you follow the explosion of open source data systems, you likely associate stream processing with some of the systems in this space—for example, <a href="http://storm-project.net/">Storm</a>, <a href="http://akka.io/">Akka</a>, <a href="http://incubator.apache.org/s4">S4</a>, and <a href="http://engineering.linkedin.com/distributed-systems/log-what-every-software-engineer-should-know-about-real-time-datas-unifying">Samza</a>. But most people see these as a kind of asynchronous message processing system not that different from a cluster-aware RPC layer (and in fact some things in this space are exactly that).</p>
+
+<blockquote>
+<p>大多数人认为storm这样的异步消息处理系统和一个集群的RPC层没有区别。</p>
+</blockquote>
+
+<p>Both these views are a little limited. Stream processing has nothing to do with SQL. Nor is it limited to real-time processing. There is no inherent reason you can&#39;t process the stream of data from yesterday or a month ago using a variety of different languages to express the computation.</p>
+
+<blockquote>
+<p>这两种观点都有些局限，流式计算和SQL没有直接的关系，也不局限在实时处理的范畴。</p>
+</blockquote>
+
+<p>I see stream processing as something much broader: infrastructure for continuous data processing. I think the computational model can be as general as MapReduce or other distributed processing frameworks, but with the ability to produce low-latency results.</p>
+
+<blockquote>
+<p>流式处理是连续数据处理的架构。这种计算模型和mapreduce或其他分布式处理框架一样general，而它产生低延时结果的能力。</p>
+</blockquote>
+
+<p>The real driver for the processing model is the method of data collection. Data which is collected in batch is naturally processed in batch. When data is collected continuously, it is naturally processed continuously.</p>
+
+<blockquote>
+<p>流式处理模型的出发点是数据收集，当数据是以批量方式收集的时候，很自然采用批量的处理方式。当数据是连续采集时，自然的方式也是连续处理。</p>
+</blockquote>
+
+<p>The US census provides a good example of batch data collection. The census periodically kicks off and does a brute force discovery and enumeration of US citizens by having people walking around door-to-door. This made a lot of sense in 1790 when the census was first begun. Data collection at the time was inherently batch oriented, it involved riding around on horseback and writing down records on paper, then transporting this batch of records to a central location where humans added up all the counts. These days, when you describe the census process one immediately wonders why we don&#39;t keep a journal of births and deaths and produce population counts either continuously or with whatever granularity is needed.</p>
+
+<blockquote>
+<p>以美国人口普查为例，说明数据的连续性</p>
+</blockquote>
+
+<p>This is an extreme example, but many data transfer processes still depend on taking periodic dumps and bulk transfer and integration. The only natural way to process a bulk dump is with a batch process. But as these processes are replaced with continuous feeds, one naturally starts to move towards continuous processing to smooth out the processing resources needed and reduce latency.</p>
+
+<p>LinkedIn, for example, has almost no batch data collection at all. The majority of our data is either activity data or database changes, both of which occur continuously. In fact, when you think about any business, the underlying mechanics are almost always a continuous process—events happen in real-time, as Jack Bauer would tell us. When data is collected in batches, it is almost always due to some manual step or lack of digitization or is a historical relic left over from the automation of some non-digital process. Transmitting and reacting to data used to be very slow when the mechanics were mail and humans did the processing. A first pass at automation always retains the form of the original process, so this often lingers for a long time.</p>
+
+<blockquote>
+<p>LinkedIn几乎没有什么批量的数据，因为数据总是连续产生，批量的处理只是受到了一些人为的控制而导致的。</p>
+</blockquote>
+
+<p>Production &quot;batch&quot; processing jobs that run daily are often effectively mimicking a kind of continuous computation with a window size of one day. The underlying data is, of course, always changing. These were actually so common at LinkedIn (and the mechanics of making them work in Hadoop so tricky) that we implemented a whole <a href="http://engineering.linkedin.com/datafu/datafus-hourglass-incremental-data-processing-hadoop">framework</a> for managing incremental Hadoop workflows.</p>
+
+<blockquote>
+<p>LinkedIn有很多人为构造的批量处理过程，如一些天级任务。</p>
+</blockquote>
+
+<p>Seen in this light, it is easy to have a different view of stream processing: it is just processing which includes a notion of time in the underlying data being processed and does not require a static snapshot of the data so it can produce output at a user-controlled frequency instead of waiting for the &quot;end&quot; of the data set to be reached. In this sense, stream processing is a generalization of batch processing, and, given the prevalence of real-time data, a very important generalization.</p>
+
+<blockquote>
+<p>可以从一个不同的观点来理解流式处理：在处理过程中保持一个时间的概念，不需要数据的静态快照，这样它就可以产出用户可控频率的输出，而不需要等到一个“数据结束”概念的到来。以这种方式理解，流式处理是一个比批量处理更宽泛的概念。</p>
+</blockquote>
+
+<p>So why has the traditional view of stream processing been as a niche application? I think the biggest reason is that a lack of real-time data collection made continuous processing something of an academic concern.</p>
+
+<p>I think the lack of real-time data collection is likely what doomed the commercial stream-processing systems. Their customers were still doing file-oriented, daily batch processing for ETL and data integration. Companies building stream processing systems focused on providing processing engines to attach to real-time data streams, but it turned out that at the time very few people actually had real-time data streams. Actually, very early at my career at LinkedIn, a company tried to sell us a very cool stream processing system, but since all our data was collected in hourly files at that time, the best application we could come up with was to pipe the hourly files into the stream system at the end of the hour! They noted that this was a fairly common problem. The exception actually proves the rule here: finance, the one domain where stream processing has met with some success, was exactly the area where real-time data streams were already the norm and processing had become the bottleneck.</p>
+
+<blockquote>
+<p>缺少实时数据的收集能力可能是制约商业流式处理系统的原因。LinkedIn在早期也是按小时收集数据，所以当一家流式处理系统商想把系统卖给LinkedIn时，本文作者发现，他们只能在每小时结束时将上个小时数据重放到流式系统里。这是一个非常普遍的问题。</p>
+</blockquote>
+
+<p>Even in the presence of a healthy batch processing ecosystem, I think the actual applicability of stream processing as an infrastructure style is quite broad. I think it covers the gap in infrastructure between real-time request/response services and offline batch processing. For modern internet companies, I think around 25% of their code falls into this category.</p>
+
+<blockquote>
+<p>流式处理可以填补实时请求服务和离线批量处理间的空白。</p>
+</blockquote>
+
+<p>It turns out that the log solves some of the most critical technical problems in stream processing, which I&#39;ll describe, but the biggest problem that it solves is just making data available in real-time multi-subscriber data feeds. For those interested in more details, we have open sourced Samza, a stream processing system explicitly built on many of these ideas. We describe a lot of these applications in more detail in the documentation <a href="http://samza.incubator.apache.org/learn/documentation/0.7.0">here</a>.</p>
+
+<blockquote>
+<p>日志解决了流式处理中的很多关键问题，其中最大的一个问题是，它使得数据能实时提供给多个订阅者。</p>
+</blockquote>
+
+<h4>Data flow graphs</h4>
+
+<p>The most interesting aspect of stream processing has nothing to do with the internals of a stream processing system, but instead has to do with how it extends our idea of what a data feed is from the earlier data integration discussion. We discussed primarily feeds or logs of primary data—the events and rows of data produced in the execution of various applications. But stream processing allows us to also include feeds computed off other feeds. These derived feeds look no different to consumers then the feeds of primary data from which they are computed. These derived feeds can encapsulate arbitrary complexity.</p>
+
+<p>Let&#39;s dive into this a bit. A stream processing job, for our purposes, will be anything that reads from logs and writes output to logs or other systems. The logs they use for input and output join these processes into a graph of processing stages. Indeed, using a centralized log in this fashion, you can view all the organization&#39;s data capture, transformation, and flow as just a series of logs and processes that write to them.</p>
+
+<p><img src="/generated/2014-01-27/multjob_Dataflow-289x327-c391ea.png" alt="multjob data flow" ></p>
+
+<p>A stream processor need not have a fancy framework at all: it can be any process or set of processes that read and write from logs, but additional infrastructure and support can be provided for helping manage processing code.</p>
+
+<blockquote>
+<p>流处理模块并不需要是一个精妙的框架，它只要能处理来源于logs的读写就可以了，但附加的框架和支持可以帮助处理。</p>
+</blockquote>
+
+<p>The purpose of the log in the integration is two-fold.</p>
+
+<p>First, it makes each dataset multi-subscriber and ordered. Recall our &quot;state replication&quot; principle to remember the importance of order. To make this more concrete, consider a stream of updates from a database—if we re-order two updates to the same record in our processing we may produce the wrong final output. This order is more permanent than what is provided by something like TCP as it is not limited to a single point-to-point link and survives beyond process failures and reconnections.</p>
+
+<blockquote>
+<p>可以实现多订阅者的的有序到达</p>
+</blockquote>
+
+<p>Second, the log provides buffering to the processes. This is very fundamental. If processing proceeds in an unsynchronized fashion it is likely to happen that an upstream data producing job will produce data more quickly than another downstream job can consume it. When this occurs processing must block, buffer or drop data. Dropping data is likely not an option; blocking may cause the entire processing graph to grind to a halt. The log acts as a very, very large buffer that allows process to be restarted or fail without slowing down other parts of the processing graph. This isolation is particularly important when extending this data flow to a larger organization, where processing is happening by jobs made by many different teams. We cannot have one faulty job cause back-pressure that stops the entire processing flow.</p>
+
+<blockquote>
+<p>为处理者提供了缓冲区。这是非常基础的，给系统增加了异步处理的特性。在工程实践中，这个缓冲区可以用于历史数据的备份。如：可以在log系统中保留最近3天的数据，这样下游系统在出现一些问题（如：升级上线后发现bug）后，可以利用这部分历史数据快速修复相关数据。</p>
+</blockquote>
+
+<p>Both Storm and Samza are built in this fashion and can use Kafka or other similar systems as their log.</p>
+
+<h4>Stateful Real-Time Processing</h4>
+
+<p>Some real-time stream processing is just stateless record-at-a-time transformation, but many of the uses are more sophisticated counts, aggregations, or joins over windows in the stream. One might, for example, want to enrich an event stream (say a stream of clicks) with information about the user doing the click—in effect joining the click stream to the user account database. Invariably, this kind of processing ends up requiring some kind of state to be maintained by the processor: for example, when computing a count, you have the count so far to maintain. How can this kind of state be maintained correctly if the processors themselves can fail?</p>
+
+<p>The simplest alternative would be to keep state in memory. However if the process crashed it would lose its intermediate state. If state is only maintained over a window, the process could just fall back to the point in the log where the window began. However, if one is doing a count over an hour, this may not be feasible.</p>
+
+<blockquote>
+<p>最简单的状态保存方式是保存在内存中，但crash时会丢失中间状态。如果状态只保留一个窗口期，那么处理只需要从窗口期开始的日志重新处理就可以了。</p>
+</blockquote>
+
+<p>An alternative is to simply store all state in a remote storage system and join over the network to that store. The problem with this is that there is no locality of data and lots of network round-trips.</p>
+
+<blockquote>
+<p>另一替代方案是把所有状态都保存到远端存储系统里，并通过网络合并存储结果。这个问题是没有本地化的数据，而且有较大的网络代价。</p>
+</blockquote>
+
+<p>How can we support something like a &quot;table&quot; that is partitioned up with our processing?</p>
+
+<p>Well recall the discussion of the duality of tables and logs. This gives us exactly the tool to be able to convert streams to tables co-located with our processing, as well as a mechanism for handling fault tolerance for these tables.</p>
+
+<p>A stream processor can keep it&#39;s state in a local &quot;table&quot; or &quot;index&quot;—a <a href="http://www.oracle.com/technetwork/products/berkeleydb">bdb</a>, <a href="https://code.google.com/p/leveldb">leveldb</a>, or even something more unusual such as a <a href="http://lucene.apache.org/">Lucene</a> or <a href="https://sdm.lbl.gov/fastbit">fastbit</a> index. The contents of this store is fed from its input streams (after first perhaps applying arbitrary transformation). It can journal out a changelog for this local index it keeps to allow it to restore its state in the event of a crash and restart. This mechanism allows a generic mechanism for keeping co-partitioned state in arbitrary index types local with the incoming stream data.</p>
+
+<blockquote>
+<p>流处理模块可以把自身的状态保存在一个本地“表”或者“索引”中，甚至是一些更不常见的索引。这些本地存储的内容都来源于输入的流。模块可以通过journal输出本地索引的修改日志，使得在模块crash重启后仍然能够恢复其状态。</p>
+</blockquote>
+
+<p>When the process fails, it restores its index from the changelog. The log is the transformation of the local state into a sort of incremental record at a time backup.</p>
+
+<p>This approach to state management has the elegant property that the state of the processors is also maintained as a log. We can think of this log just like we would the log of changes to a database table. In fact, the processors have something very like a co-partitioned table maintained along with them. Since this state is itself a log, other processors can subscribe to it. This can actually be quite useful in cases when the goal of the processing is to update a final state and this state is the natural output of the processing.</p>
+
+<blockquote>
+<p>使用这种方式来进行状态管理有一个优越的属性，就是各个处理器的状态也可以像log一样被保存。</p>
+</blockquote>
+
+<p>When combined with the logs coming out of databases for data integration purposes, the power of the log/table duality becomes clear. A change log may be extracted from a database and indexed in different forms by various stream processors to join against event streams.</p>
+
+<p>We give more detail on this style of managing stateful processing in Samza and a lot more practical examples <a href="http://samza.incubator.apache.org/learn/documentation/0.7.0/container/state-management.html">here</a>.</p>
+
+<h4>Log Compaction</h4>
+
+<p>Of course, we can&#39;t hope to keep a complete log for all state changes for all time. Unless one wants to use infinite space, somehow the log must be cleaned up. I&#39;ll talk a little about the implementation of this in Kafka to make it more concrete. In Kafka, cleanup has two options depending on whether the data contains keyed updates or event data. For event data, Kafka supports just retaining a window of data. Usually, this is configured to a few days, but the window can be defined in terms of time or space. For keyed data, though, a nice property of the complete log is that you can replay it to recreate the state of the source system (potentially recreating it in another system).</p>
+
+<p>However, retaining the complete log will use more and more space as time goes by, and the replay will take longer and longer. Hence, in Kafka, we support a different type of retention. Instead of simply throwing away the old log, we remove obsolete records—i.e. records whose primary key has a more recent update. By doing this, we still guarantee that the log contains a complete backup of the source system, but now we can no longer recreate all previous states of the source system, only the more recent ones. We call this feature log compaction.</p>
+
+<blockquote>
+<p>有两种类型的日志，分情况讨论。event数据，一般采用rotate的方式，保留最近一个时间窗口的数据，删除部分历史数据；更新键值，只保留最后更新的数据，删除历史更新。</p>
+</blockquote>
+
+<p><img src="/generated/2014-01-27/log_compaction-359x242-b32c47.png" alt="log compation" ></p>
+
+<h3>Part Four: System Building</h3>
+
+<p>The final topic I want to discuss is the role of the log in data system design for online data systems.</p>
+
+<p>There is an analogy here between the role a log serves for data flow inside a distributed database and the role it serves for data integration in a larger organization. In both cases, it is responsible for data flow, consistency, and recovery. What, after all, is an organization, if not a very complicated distributed data system?</p>
+
+<h4>Unbundling?</h4>
+
+<p>So maybe if you squint a bit, you can see the whole of your organization&#39;s systems and data flows as a single distributed database. You can view all the individual query-oriented systems (Redis, SOLR, Hive tables, and so on) as just particular indexes on your data. You can view the stream processing systems like Storm or Samza as just a very well-developed trigger and view materialization mechanism. Classical database people, I have noticed, like this view very much because it finally explains to them what on earth people are doing with all these different data systems—they are just different index types!</p>
+
+<blockquote>
+<p>如果你把公司内所有的系统和数据流看成一个分布式数据库，那各种独立的查询系统就是你数据的索引。你可以把像Storm和Samza这样的流式处理系统看做高级触发器。</p>
+</blockquote>
+
+<p>There is undeniably now an explosion of types of data systems, but in reality, this complexity has always existed. Even in the heyday of the relational database, organizations had lots and lots of relational databases! So perhaps real integration hasn&#39;t existed since the mainframe when all the data really was in one place. There are many motivations for segregating data into multiple systems: scale, geography, security, and performance isolation are the most common. But these issues can be addressed by a good system: it is possible for an organization to have a single Hadoop cluster, for example, that contains all the data and serves a large and diverse constituency.</p>
+
+<p>So there is already one possible simplification in the handling of data that has become possible in the move to distributed systems: coalescing lots of little instances of each system into a few big clusters. Many systems aren&#39;t good enough to allow this yet: they don&#39;t have security, or can&#39;t guarantee performance isolation, or just don&#39;t scale well enough. But each of these problems is solvable.</p>
+
+<blockquote>
+<p>一个可能的迁移到分布式系统的简化方案是，把各个系统的多个小实体合并到少数几个大集群里。这些系统目前并不是足够好：他们不安全，不能保证性能独立，或者不容易做扩展。但每个问题都是可以解决的。</p>
+</blockquote>
+
+<p>My take is that the explosion of different systems is caused by the difficulty of building distributed data systems. By cutting back to a single query type or use case each system is able to bring its scope down into the set of things that are feasible to build. But running all these systems yields too much complexity.</p>
+
+<blockquote>
+<p>作者认为产生那么多不同系统的原因是构建分布式数据系统十分困难。当把查询种类和使用场景简化到单一系统时，问题域被降低到可以解决的一些事情上，但同时运行那么多系统会增加太多的复杂性。</p>
+</blockquote>
+
+<p>I see three possible directions this could follow in the future.</p>
+
+<p>The first possibility is a continuation of the status quo: the separation of systems remains more or less as it is for a good deal longer. This could happen either because the difficulty of distribution is too hard to overcome or because this specialization allows new levels of convenience and power for each system. As long as this remains true, the data integration problem will remain one of the most centrally important things for the successful use of data. In this case, an external log that integrates data will be very important.</p>
+
+<blockquote>
+<p>第一个可能的方案是仍然保持各个系统的独立性，因为这种系统的划分肯定带来了一些便利和能力。在这种情况下数据集成就是成功使用数据要面临的一个大问题。</p>
+</blockquote>
+
+<p>The second possibility is that there could be a re-consolidation in which a single system with enough generality starts to merge back in all the different functions into a single uber-system. This uber-system could be like the relational database superficially, but it&#39;s use in an organization would be far different as you would need only one big one instead of umpteen little ones. In this world, there is no real data integration problem except what is solved inside this system. I think the practical difficulties of building such a system make this unlikely.</p>
+
+<blockquote>
+<p>第二个可能的方案是重新把所有不同的功能集中到一个系统里，这个方案在实践上比较有难度。</p>
+</blockquote>
+
+<p>There is another possible outcome, though, which I actually find appealing as an engineer. One interesting facet of the new generation of data systems is that they are virtually all open source. Open source allows another possibility: data infrastructure could be unbundled into a collection of services and application-facing system apis. You already see this happening to a certain extent in the Java stack:</p>
+
+<blockquote>
+<p>还有一个对工程师来说很有吸引力的的方案，使用最新的开源工具搭建一组服务和面向应用的api。</p>
+</blockquote>
+
+<ul>
+<li>Zookeeper handles much of the system co-ordination (perhaps with a bit of help from higher-level abstractions like Helix or Curator).</li>
+<li>Mesos and YARN do process virtualization and resource management</li>
+<li>Embedded libraries like Lucene and LevelDB do indexing</li>
+<li>Netty, Jetty and higher-level wrappers like Finagle and rest.li handle remote communication</li>
+<li>Avro, Protocol Buffers, Thrift, and umpteen zillion other libraries handle serialization</li>
+<li>Kafka and Bookeeper provide a backing log.</li>
+</ul>
+
+<p>If you stack these things in a pile and squint a bit, it starts to look a bit like a lego version of distributed data system engineering. You can piece these ingredients together to create a vast array of possible systems. This is clearly not a story relevant to end-users who presumably care primarily more about the API then how it is implemented, but it might be a path towards getting the simplicity of the single system in a more diverse and modular world that continues to evolve. If the implementation time for a distributed system goes from years to weeks because reliable, flexible building blocks emerge, then the pressure to coalesce into a single monolithic system disappears.</p>
+
+<h4>The place of the log in system architecture Log</h4>
+
+<p>A system that assumes an external log is present allows the individual systems to relinquish a lot of their own complexity and rely on the shared log. Here are the things I think a log can do:</p>
+
+<ul>
+<li>Handle data consistency (whether eventual or immediate) by sequencing concurrent updates to nodes</li>
+<li>Provide data replication between nodes</li>
+<li>Provide &quot;commit&quot; semantics to the writer (i.e. acknowledging only when your write guaranteed not to be lost)</li>
+<li>Provide the external data subscription feed from the system</li>
+<li>Provide the capability to restore failed replicas that lost their data or bootstrap new replicas</li>
+<li>Handle rebalancing of data between nodes.</li>
+</ul>
+
+<blockquote>
+<p>log能做的事情：1. 把并发的更新排序分发给节点，保持数据一致性；2. 支持节点间的数据备份；3. 给输出产出者提供“提交”逻辑；4. 给外部的数据订阅方提供系统内数据；5. 为失效和新启动的副本提供恢复数据的能力；6. 处理节点间数据均衡。</p>
+</blockquote>
+
+<p>This is actually a substantial portion of what a distributed data system does. In fact, the majority of what is left over is related to the final client-facing query API and indexing strategy. This is exactly the part that should vary from system to system: for example, a full-text search query may need to query all partitions whereas a query by primary key may only need to query a single node responsible for that key&#39;s data.</p>
+
+<p>Here is how this works. The system is divided into two logical pieces: the log and the serving layer. The log captures the state changes in sequential order. The serving nodes store whatever index is required to serve queries (for example a key-value store might have something like a btree or sstable, a search system would have an inverted index). Writes may either go directly to the log, though they may be proxied by the serving layer. Writing to the log yields a logical timestamp (say the index in the log). If the system is partitioned, and I assume it is, then the log and the serving nodes will have the same number of partitions, though they may have very different numbers of machines.</p>
+
+<blockquote>
+<p>系统被分为两个逻辑块：日志和服务层。日志获取有序的状态变化。服务层保持用于服务查询所需的索引。写操作可能直接进入log，虽然他们可能需要服务层来做转发。写日志会产生逻辑时间戳。如果系统有多个分区，那么日志和服务节点也会有相同数目的分区，虽然可能有不同数目的服务器。</p>
+</blockquote>
+
+<p>The serving nodes subscribe to the log and apply writes as quickly as possible to its local index in the order the log has stored them.</p>
+
+<blockquote>
+<p>当日志中有数据到来时，服务节点会尽快把数据写入本地索引。</p>
+</blockquote>
+
+<p>The client can get read-your-write semantics from any node by providing the timestamp of a write as part of its query—a serving node receiving such a query will compare the desired timestamp to its own index point and if necessary delay the request until it has indexed up to at least that time to avoid serving stale data.</p>
+
+<blockquote>
+<p>客户端只需要在读的时候提供逻辑时间戳，就能支持“写后读”的一致性。</p>
+</blockquote>
+
+<p>The serving nodes may or may not need to have any notion of &quot;mastership&quot; or &quot;leader election&quot;. For many simple use cases, the serving nodes can be completely without leaders, since the log is the source of truth.</p>
+
+<p><img src="/generated/2014-01-27/clients_serv_log-192x331-04efc6.png" alt="clients, serving node, log" ></p>
+
+<p>One of the trickier things a distributed system must do is handle restoring failed nodes or moving partitions from node to node. A typical approach would have the log retain only a fixed window of data and combine this with a snapshot of the data stored in the partition. It is equally possible for the log to retain a complete copy of data and <a href="https://cwiki.apache.org/confluence/display/KAFKA/Log+Compaction">garbage collect the log itself</a>. This moves a significant amount of complexity out of the serving layer, which is system-specific, and into the log, which can be general purpose.</p>
+
+<blockquote>
+<p>分布式系统中必须解决的一个问题是恢复失效节点的数据或把分区从一个节点迁移到另一个节点。一个典型的做法是，日志只保留一个固定的时间窗口，这些日志和数据快照一起保存在分区上。也可以从日志恢复完整的数据，然后通过垃圾回收清除日志（log compaction）。这样服务层减少了相当多的复杂性。</p>
+</blockquote>
+
+<p>By having this log system, you get a fully developed subscription API for the contents of the data store which feeds ETL into other systems. In fact, many systems can share the same the log while providing different indexes, like this:</p>
+
+<p><img src="/generated/2014-01-27/log_centric_inf_stack-287x282-e4c3a0.png" alt="log_centric_inf_stack.png" ></p>
+
+<p>Note how such a log-centric system is itself immediately a provider of data streams for processing and loading in other systems. Likewise, a stream processor can consume multiple input streams and then serve them via another system that indexes that output.</p>
+
+<blockquote>
+<p>利用这种日志系统，订阅API就能就能把ETL的数据导入其他系统，各个系统就能消费多种输入流，并产生对应的索引。</p>
+</blockquote>
+
+<p>I find this view of systems as factored into a log and query api to very revealing, as it lets you separate the query characteristics from the availability and consistency aspects of the system. I actually think this is even a useful way to mentally factor a system that isn&#39;t built this way to better understand it.</p>
+
+<blockquote>
+<p>把系统理解成为log和query api是很有趣的，它可以让你把系统的查询性质从可用性和一致性方面区分开。甚至可以用这种方式来更好的理解哪些不是以这种方式构建的系统。</p>
+</blockquote>
+
+<p>It&#39;s worth noting that although Kafka and Bookeeper are consistent logs, this is not a requirement. You could just as easily factor a <a href="http://www.allthingsdistributed.com/2007/10/amazons_dynamo.html">Dynamo</a>-like database into an eventually consistent <a href="http://en.wikipedia.org/wiki/CAP_theorem">AP</a> log and a key-value serving layer. Such a log is a bit tricky to work with, as it will redeliver old messages and depends on the subscriber to handle this (much like Dynamo itself).</p>
+
+<blockquote>
+<p>值得注意的是虽然Kafka和Bookeeper是一致性日志，但这并不是必要的。你可以很容把一个类似Dynamo的系统理解为一个最终一致性AP日志和一个键值服务层。这种类型的日志使用起来需要技巧，因为它可能会重传老的信息，也可能根据订阅端的不同来返回数据。</p>
+</blockquote>
+
+<p>The idea of having a separate copy of data in the log (especially if it is a complete copy) strikes many people as wasteful. In reality, though there are a few factors that make this less of an issue. First, the log can be a particularly efficient storage mechanism. We store up to 5TB on our production Kafka servers. Meanwhile many serving systems require much more memory to serve data efficiently (text search, for example, is often all in memory). The serving system may also use optimized hardware. For example, most our live data systems either serve out of memory or else use SSDs. In contrast, the log system does only linear reads and writes, so it is quite happy using large multi-TB hard drives. Finally, as in the picture above, in the case where the data is served by multiple systems, the cost of the log is amortized over multiple indexes. This combination makes the expense of an external log pretty minimal.</p>
+
+<blockquote>
+<p>有些看法认为在日志里存储完整的数据备份是种浪费，但其实不是：1.日志数据可以很有效率地存储2. 日志读写的成本增长是线性的；3.log存储的成本实际上被平摊到了各个使用日志系统的其他系统上，平均来看，成本很低。</p>
+</blockquote>
+
+<p>This is exactly the pattern that LinkedIn has used to build out many of its own real-time query systems. These systems feed off a database (using Databus as a log abstraction or off a dedicated log from Kafka) and provide a particular partitioning, indexing, and query capability on top of that data stream. This is the way we have implemented our search, social graph, and OLAP query systems. In fact, it is quite common to have a single data feed (whether a live feed or a derived feed coming from Hadoop) replicated into multiple serving systems for live serving. This has proven to be an enormous simplifying assumption. None of these systems need to have an externally accessible write api at all, Kafka and databases are used as the system of record and changes flow to the appropriate query systems through that log. Writes are handled locally by the nodes hosting a particular partition. These nodes blindly transcribe the feed provided by the log to their own store. A failed node can be restored by replaying the upstream log.</p>
+
+<p>The degree to which these systems rely on the log varies. A fully reliant system could make use of the log for data partitioning, node restore, rebalancing, and all aspects of consistency and data propagation. In this setup, the actual serving tier is actually nothing less than a sort of &quot;cache&quot; structured to enable a particular type of processing with writes going directly to the log.</p>
+
+<blockquote>
+<p>一个基于日志构建的系统可以利用日志做数据分区，节点恢复，数据均衡，以及一致性和数据传播各方面的问题。在这种情况下，真正的服务层实际上是一个处理特殊逻辑的缓冲层，它把数据直接写到日志里。</p>
+</blockquote>
+
+<h3>The End</h3>
+
+<p>If you made it this far you know most of what I know about logs.</p>
+
+<p>Here are a few interesting references you may want to check out.</p>
+
+<blockquote>
+<p>以下是扩展阅读资料</p>
+</blockquote>
+
+<p>Everyone seems to uses different terms for the same things so it is a bit of a puzzle to connect the database literature to the distributed systems stuff to the various enterprise software camps to the open source world. Nonetheless, here are a few pointers in the general direction.</p>
+
+</div>
+
+<div id="disqus_thread"></div>
+<script type="text/javascript">
+    /* * * CONFIGURATION VARIABLES: EDIT BEFORE PASTING INTO YOUR WEBPAGE * * */
+    var disqus_shortname = 'creatstar'; // required: replace example with your forum shortname
+
+    /* * * DON'T EDIT BELOW THIS LINE * * */
+    (function() {
+        var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+        dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+        (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="http://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+
+
+          <div class="footer">
+            <div class="contact">
+              <p>
+                我们的微博<br/>
+              </p>
+            </div>
+            <div class="contact">
+              <p>
+                <a href="http://weibo.com/creatstar">叶谦creatstar</a>
+                <a href="http://weibo.com/u/1800945442">姝婧Winnie伪班客</a><br/>
+              </p>
+            </div>
+            <div class="contact">
+              <p>
+                版权声明：本站所有内容，未经特别说明，均采用<a href="http://creativecommons.org/licenses/by-nc-nd/3.0/deed.zh">“署名-非商业性使用-禁止演绎 3.0”协议</a>授权。任何违反本协议的行为均属于非法行为。如需非商业性转载，请保留署名。如需商业性转载出版，请直接和我们联系。
+              </p>
+            </div>
+          </div>
+
+        </div>
+    </body>
+</html>
